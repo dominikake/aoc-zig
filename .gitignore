@@ -1,0 +1,4 @@
+opencode.jsonc
+.zig-cache/
+zig-out/
+input/
