@@ -1,22 +1,22 @@
 # Agent Guidelines
 
 ## Build Commands
-
-### Advent of Code Template
-- `zig build solve -Dday=5 -Dyear=2023` - Run single day solution
-- `zig build solve -Dday=1..5` - Run range of days
-- `zig build solve -Dday=..25` - Run all days
-- `zig build test -Dday=5` - Run tests for specific day
-- Build options: `-Dtimer=true` (default), `-Dcolor=true` (default), `-Dfail-stop=false`, `-Dpart=both`
-- `./fetch.sh 2023 5` - Download input for day 5, 2023
+- `zig build` - Build project
+- `zig build test` - Run all tests
+- `zig build run` - Run the application
+- `zig build solve -Dday=N -Dyear=YYYY` - Run specific day solution
+- `zig build solve -Dday=N -Dyear=YYYY -Dpart=1|2|both` - Run specific part
 - `zig fmt` - Format all Zig files
-- `zig build` - Build project with custom runner
+- `./fetch.sh YYYY DAY` - Download AoC input and create solution template
+- `./fetch.sh YYYY DAY --force` - Re-download input and update solution template
+- `./fetch.sh YYYY DAY --puzzle` - Only fetch puzzle description
+- `./submit.sh YYYY DAY LEVEL ANSWER` - Submit answer for specific part
 
 ## Code Style Guidelines
 
 ### Zig
 - Use snake_case for variables and functions
-- Use PascalCase for types and structs
+- Use PascalCase for types and structs  
 - Use UPPER_SNAKE_CASE for constants
 - 4-space indentation, no tabs
 - Prefer `const` over `var` when possible
@@ -24,29 +24,26 @@
 - Function documentation comments start with `///`
 - Import statements at top of file, grouped by standard library then third-party
 
-### Directory Structure
-```
-build.zig
-fetch.sh
-input/
-    2023/
-        day01.txt
-        day02.txt
-        ...
-2023/
-    day_01.zig
-    day_02.zig
-    ...
-```
-
 ### Advent of Code
-- Each day in separate file: `2023/day_01.zig`, `2023/day_02.zig`, etc.
+- Each day in separate file: `YYYY/day_01.zig`, `YYYY/day_02.zig`, etc.
 - Solution functions: `pub fn part1(input: []const u8) !?[]const u8` and `pub fn part2(input: []const u8) !?[]const u8`
-- Input files automatically read by build system from `input/YYYY/dayDD.txt`
-- Test with sample input from problem description
+- Input files in `input/YYYY/dayDD.txt` format
 - Functions accept mutable byte slice, can return any printable type or error union
 
 ### Input Fetching
-- Create session cookie file at `~/.config/aoc/session.cookie` with Advent of Code session token
-- Use `./fetch.sh YYYY DAY` to download input files (e.g., `./fetch.sh 2023 5`)
+- Create session cookie at `~/.config/aoc/session.cookie` with AoC session token
 - Session cookie available from browser developer tools on adventofcode.com
+
+### Answer Submission
+- `./submit.sh YYYY DAY LEVEL ANSWER` - Submit answer with confirmation prompt
+- Answers are cached to prevent duplicate submissions
+- Rate limiting: 1 submission/minute, 5/day per AoC rules
+- Successful submissions are cached in `~/.cache/aoc/`
+- Use `--force` with fetch.sh to update puzzle descriptions after part 1 completion
+
+### Safety Guidelines
+- Always test solutions locally before submitting
+- Submissions are rate-limited by Advent of Code servers
+- Incorrect answers may provide hints in the response
+- Successful submissions unlock the next part of the puzzle
+- Cache prevents accidental duplicate submissions
