@@ -1,93 +1,118 @@
-# Advent of Code - Zig Template
+# Advent of Code Zig Template
 
-A streamlined Zig template for solving Advent of Code puzzles with automated workflow.
+A simple Zig template for solving Advent of Code puzzles with automated input fetching and answer submission.
 
 ## Quick Start
 
 ```bash
-// Create session cookie file with your AoC session token
-mkdir -p ~/.config/aoc && echo "your_session_token" > ~/.config/aoc/session.cookie
-
-// Download input and auto-create solution file for a specific day
+# Fetch puzzle input and create solution template
 ./fetch.sh 2025 1
 
-// Edit your solution in the created file
-// 2025/day_01.zig now has part1() and part2() functions ready
-
-// Run your solution for the day
+# Solve the puzzle
 zig build solve -Dday=1 -Dyear=2025
 
-// Run tests for the day
-zig build test -Dday=1 -Dyear=2025
-
-// Format all Zig files
-zig fmt
+# Submit your answer
+./submit.sh 2025 1 1 "your_answer_here"
 ```
 
-## Workflow
+## Project Structure
 
-1. **Setup**: Create session cookie file once with your Advent of Code session token
-2. **Fetch**: Run `./fetch.sh YYYY DAY` to download input and auto-create solution file
-3. **Solve**: Edit the generated `YYYY/day_DD.zig` file with your solution logic
-4. **Run**: Use `zig build solve` to execute your solution
-5. **Test**: Use `zig build test` to run tests
+```
+aoc-zig/
+├── src/                    # Core application files
+│   ├── main.zig           # Main entry point
+│   ├── aoc_runner.zig     # Solution runner
+│   └── root.zig           # Module exports
+├── 2025/                   # Year-specific solutions
+│   └── day_01.zig         # Day 1 solution
+├── input/                  # Puzzle inputs
+│   └── 2025/
+│       └── day01.txt      # Day 1 input
+├── fetch.sh               # Download inputs and create templates
+├── submit.sh              # Submit answers to AoC
+└── build.zig              # Build configuration
+```
 
-## Part 1 & Part 2 Handling
+## Commands
 
-The build system automatically detects and runs these functions:
+### Building and Running
+
+```bash
+# Build the project
+zig build
+
+# Run tests
+zig build test
+
+# Run specific day solution
+zig build solve -Dday=N -Dyear=YYYY
+
+# Run specific part only
+zig build solve -Dday=N -Dyear=YYYY -Dpart=1
+zig build solve -Dday=N -Dyear=YYYY -Dpart=2
+```
+
+### Input Fetching
+
+```bash
+# Download input and create solution template
+./fetch.sh 2025 1
+
+# Force re-download (overwrites existing files)
+./fetch.sh 2025 1 --force
+
+# Only fetch puzzle description
+./fetch.sh 2025 1 --puzzle
+```
+
+### Answer Submission
+
+```bash
+# Submit answer for part 1
+./submit.sh 2025 1 1 "your_answer"
+
+# Submit answer for part 2  
+./submit.sh 2025 1 2 "your_answer"
+```
+
+## Solution Template
+
+Each day follows this structure:
 
 ```zig
 pub fn part1(input: []const u8) !?[]const u8 {
-    // Your part 1 solution here
-    // Input is automatically read from input/YYYY/dayDD.txt
-    // Return any printable type or error union
+    _ = input;
+    // TODO: Implement part 1 solution
+    return null;
 }
 
 pub fn part2(input: []const u8) !?[]const u8 {
-    // Your part 2 solution here
-    // Same input as part1 (you can mutate it safely)
-    // Return any printable type or error union
+    _ = input;
+    // TODO: Implement part 2 solution
+    return null;
 }
+
+const std = @import("std");
 ```
 
-**Key Points:**
-- Functions must be `pub` and named exactly `part1` and `part2`
-- Input parameter: `[]const u8` (read-only) or `[]u8` (mutable)
-- Return: Any printable type, error union, or `![]const u8`
-- Build system runs both parts by default
-- Use `-Dpart=1`, `-Dpart=2`, or `-Dpart=both` to control which parts run
+## Setup
 
-## Build Commands
+1. **Session Cookie**: Create `~/.config/aoc/session.cookie` with your Advent of Code session token
+   - Get token from browser dev tools on adventofcode.com
+   - Network tab → Find any request → Copy `session` cookie value
 
-```bash
-zig build solve -Dday=5 -Dyear=2023    # Run single day
-zig build solve -Dday=1..5            # Run range of days  
-zig build solve -Dday=..25            # Run all days
-zig build test -Dday=5                # Run tests for specific day
-zig fmt                               # Format all files
-```
+2. **Zig**: Install Zig (0.11.0 or later recommended)
 
-## Directory Structure
+## Features
 
-```
-build.zig
-fetch.sh
-input/
-    2025/
-        day01.txt
-        day02.txt
-        ...
-2025/
-    day_01.zig
-    day_02.zig
-    ...
-```
+- ✅ Automated input downloading
+- ✅ Solution template generation  
+- ✅ Answer submission with confirmation
+- ✅ Submission caching (prevents duplicates)
+- ✅ Rate limiting awareness
+- ✅ Part 2 unlock detection
+- ✅ Build system integration
 
-## Session Cookie Setup
+## License
 
-1. Go to [adventofcode.com](https://adventofcode.com) and log in
-2. Open browser developer tools (F12)
-3. Go to Network tab, refresh the page
-4. Find any request to adventofcode.com, look at headers
-5. Copy the `session` cookie value
-6. Create `~/.config/aoc/session.cookie` with just the cookie value
+MIT License - see [LICENSE](LICENSE) file for details.
