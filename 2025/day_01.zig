@@ -97,10 +97,73 @@ pub fn part1(input: []const u8) !?[]const u8 {
     return result;
 }
 
+// TAOCP: O(1) zero-crossing formula for circular arithmetic
+fn countZeroCrossings(pos: u8, direction: u8, distance: u32) u32 {
+    if (distance == 0) return 0;
+
+    const steps_to_zero: u32 = switch (direction) {
+        'R' => if (pos == 0) 100 else 100 - pos, // steps needed to reach 0 going right
+        'L' => if (pos == 0) 100 else pos, // steps needed to reach 0 going left
+        else => unreachable,
+    };
+
+    // If we don't even reach first crossing → 0 hits
+    if (steps_to_zero > distance) return 0;
+
+    // Otherwise: 1 (for first crossing) + floor( (remaining steps) / 100 )
+    const remaining_after_first = distance - steps_to_zero;
+    return 1 + (remaining_after_first / 100);
+}
+
 pub fn part2(input: []const u8) !?[]const u8 {
-    _ = input;
-    // TODO: Implement part 2 solution
-    return null;
+    // TAOCP: State machine with isolated transducers, no memory window needed
+    var position: u8 = 50; // Start at position 50
+    var total_hits: u32 = 0; // Total zero crossings (Part 2 logic)
+
+    // TAOCP: Parsing with delimiters - same as Part 1
+    var line_iter = std.mem.tokenizeScalar(u8, input, '\n');
+
+    while (line_iter.next()) |line| {
+        if (line.len == 0) continue;
+
+        const trimmed_line = std.mem.trim(u8, line, " \r\t");
+        if (trimmed_line.len == 0) continue;
+
+        // Handle different input formats (same as Part 1)
+        var instruction_part: []const u8 = undefined;
+
+        if (std.mem.indexOfScalar(u8, trimmed_line, '|')) |pipe_pos| {
+            if (pipe_pos + 1 >= trimmed_line.len) continue;
+            instruction_part = trimmed_line[pipe_pos + 1 ..];
+        } else if (std.mem.indexOfScalar(u8, trimmed_line, ' ')) |space_pos| {
+            if (space_pos + 1 >= trimmed_line.len) continue;
+            instruction_part = trimmed_line[space_pos + 1 ..];
+        } else {
+            instruction_part = trimmed_line;
+        }
+
+        const trimmed_instruction = std.mem.trim(u8, instruction_part, " \r\t");
+        if (trimmed_instruction.len == 0) continue;
+
+        const instruction = try parseInstruction(trimmed_instruction);
+
+        // TAOCP: Count zero crossings using O(1) formula
+        const hits = countZeroCrossings(position, instruction.direction, instruction.distance);
+        total_hits += hits;
+
+        // TAOCP: Update position using circular arithmetic
+        const effective_distance = @mod(instruction.distance, 100);
+        position = switch (instruction.direction) {
+            'L' => @intCast((position + 100 - effective_distance) % 100),
+            'R' => @intCast((position + effective_distance) % 100),
+            else => unreachable,
+        };
+    }
+
+    // Convert result to string for output
+    const gpa = std.heap.page_allocator;
+    const result = try std.fmt.allocPrint(gpa, "{}", .{total_hits});
+    return result;
 }
 
 // Test with sample input - expected answer is 3
@@ -120,4 +183,23 @@ test "part1 sample input" {
     const result = try part1(sample_input);
     defer std.heap.page_allocator.free(result.?);
     try std.testing.expectEqualStrings("3", result.?);
+}
+
+// Test with sample input - expected answer is 6
+test "part2 sample input" {
+    const sample_input =
+        \\L68
+        \\L30
+        \\R48
+        \\L5
+        \\R60
+        \\L55
+        \\L1
+        \\L99
+        \\R14
+        \\L82
+    ;
+    const result = try part2(sample_input);
+    defer std.heap.page_allocator.free(result.?);
+    try std.testing.expectEqualStrings("6", result.?);
 }
