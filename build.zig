@@ -98,4 +98,23 @@ pub fn build(b: *std.Build) void {
             }
         }
     }
+
+    // Learning guide system
+    const learning_guide_mod = b.createModule(.{
+        .root_source_file = b.path("learning-guide/agents/learning-guide-agent.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const learning_guide_exe = b.addExecutable(.{
+        .name = "learning-guide-agent",
+        .root_module = learning_guide_mod,
+    });
+
+    b.installArtifact(learning_guide_exe);
+
+    // Run step for learning guide agent
+    const run_learning_guide = b.addRunArtifact(learning_guide_exe);
+    const learning_guide_step = b.step("learning-guide", "Update learning guide for a day");
+    learning_guide_step.dependOn(&run_learning_guide.step);
 }

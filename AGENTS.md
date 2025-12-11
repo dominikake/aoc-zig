@@ -47,3 +47,55 @@
 - Incorrect answers may provide hints in the response
 - Successful submissions unlock the next part of the puzzle
 - Cache prevents accidental duplicate submissions
+
+## Learning Guide System
+
+### Overview
+Automatically generates educational learning guides after successful AoC submissions, focusing on TAOCP concepts, programming principles, and Zig-specific features.
+
+### Directory Structure
+```
+learning-guide/
+├── agents/
+│   ├── learning-guide-agent.zig    # Core agent logic
+│   └── main.zig                # CLI interface
+├── templates/
+│   └── day-template.md           # Template for new guides
+├── 2025/
+│   └── day-01-learning-guide.md  # Generated guides
+├── build.zig                    # Build system integration
+└── README.md                    # System documentation
+```
+
+### Usage Commands
+```bash
+# Build learning guide system
+zig build learning-guide
+
+# Update learning guide manually
+./.zig-cache/o/*/learning-guide-agent <year> <day> <solution_file>
+
+# Update using integration script
+./update-learning-guide.sh <year> <day> <solution_file>
+```
+
+### Integration with AoC Workflow
+1. **Solve Problem**: Implement solution using TAOCP concepts
+2. **Submit Answer**: Use `submit.sh` script
+3. **Generate Guide**: Run `./update-learning-guide.sh` to update learning guide
+4. **Review Learning**: Study concepts and exercises
+
+### Learning Guide Components
+Each generated guide includes:
+- **Problem Breakdown**: High-level understanding of each part
+- **TAOCP Concepts**: Mathematical and algorithmic principles applied
+- **Programming Concepts**: General computer science concepts
+- **Zig-Specific Concepts**: Language features and syntax
+- **Learning Exercises**: Practice problems for reinforcement
+- **Key Insights**: Important takeaways and patterns
+
+### Educational Philosophy
+- **Learning Over Answers**: Focus on concepts, not solutions
+- **Progressive Complexity**: Build from simple to advanced
+- **Practical Application**: Real-world programming techniques
+- **Cross-Reference**: Connect concepts across days
