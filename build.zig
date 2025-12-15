@@ -117,4 +117,30 @@ pub fn build(b: *std.Build) void {
     const run_learning_guide = b.addRunArtifact(learning_guide_exe);
     const learning_guide_step = b.step("learning-guide", "Update learning guide for a day");
     learning_guide_step.dependOn(&run_learning_guide.step);
+
+    // Unified AoC Agent system
+    const unified_agent_mod = b.createModule(.{
+        .root_source_file = b.path("agents/unified-aoc-agent.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const unified_agent_exe = b.addExecutable(.{
+        .name = "aoc-agent",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("agents/aoc-cli.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "unified_agent", .module = unified_agent_mod },
+            },
+        }),
+    });
+
+    b.installArtifact(unified_agent_exe);
+
+    // Run step for unified agent
+    const run_unified_agent = b.addRunArtifact(unified_agent_exe);
+    const unified_agent_step = b.step("agent", "Run unified AoC agent workflow");
+    unified_agent_step.dependOn(&run_unified_agent.step);
 }

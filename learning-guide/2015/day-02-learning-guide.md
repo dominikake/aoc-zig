@@ -5,6 +5,7 @@
 ### Part 2: Complete part 1 first to unlock part 2
 
 ## TAOCP Concepts Applied
+
 - Tuple Data Structure - Struct for 3-dimensional geometry representation
 - Mathematical Functions - Surface area calculations using arithmetic operations
 - Parsing with Delimiters - Extract dimensions from "l×w×h" format using tokenization
@@ -12,6 +13,7 @@
 - Min/Max Operations - Efficient smallest side area calculation using @min builtin
 
 ## Programming Concepts
+
 - Input parsing and validation
 - Error handling patterns
 - Streaming algorithms
@@ -19,6 +21,7 @@
 - Mathematical surface area calculations
 
 ## Zig-Specific Concepts
+
 - Error handling with try/catch
 - Pattern matching with switch statements
 - Type safety with u64 for overflow protection
@@ -27,6 +30,7 @@
 - Comptime features (for future days)
 
 ## Learning Exercises
+
 1. Implement a function to calculate volume of rectangular prisms
 2. Create a parser that handles different input formats (pipe, numbered, basic)
 3. Practice error handling patterns for malformed input

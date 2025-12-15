@@ -99,3 +99,11 @@ Each generated guide includes:
 - **Progressive Complexity**: Build from simple to advanced
 - **Practical Application**: Real-world programming techniques
 - **Cross-Reference**: Connect concepts across days
+
+### GH-Grep
+
+If you are unsure how to do something, use `gh_grep` to search code examples from github.
+
+### search
+
+When you need to search docs, use `context7` tools.
