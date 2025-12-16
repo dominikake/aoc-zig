@@ -36,26 +36,30 @@ const Instruction = struct {
     offset: i64 = 0,
 
     pub fn parse(line: []const u8) !Instruction {
-        var parts = std.mem.tokenizeScalar(u8, line, ' ');
-        const opcode_str = parts.next().?;
+        var it = std.mem.tokenizeScalar(u8, line, ' ');
+        const opcode_str = it.next().?;
         const opcode = Opcode.fromString(opcode_str) orelse return error.InvalidOpcode;
 
         switch (opcode) {
             .hlf, .tpl, .inc => {
-                const reg_str = parts.next().?;
+                const reg_str = it.next().?;
                 const reg = Register.fromString(reg_str) orelse return error.InvalidRegister;
                 return Instruction{ .opcode = opcode, .reg = reg };
             },
             .jmp => {
-                const offset_str = parts.next().?;
+                const offset_str = it.next().?;
                 const offset = try std.fmt.parseInt(i64, offset_str, 10);
                 return Instruction{ .opcode = opcode, .offset = offset };
             },
             .jie, .jio => {
-                const reg_str = parts.next().?;
+                const reg_with_comma = it.next().?;
+                const reg_str = if (reg_with_comma[reg_with_comma.len - 1] == ',')
+                    reg_with_comma[0 .. reg_with_comma.len - 1]
+                else
+                    reg_with_comma;
                 const reg = Register.fromString(reg_str) orelse return error.InvalidRegister;
 
-                const offset_str = parts.next().?;
+                const offset_str = it.next().?;
                 const offset = try std.fmt.parseInt(i64, offset_str, 10);
 
                 return Instruction{ .opcode = opcode, .reg = reg, .offset = offset };
@@ -147,7 +151,23 @@ pub fn part1(input: []const u8) !?[]const u8 {
 }
 
 pub fn part2(input: []const u8) !?[]const u8 {
-    _ = input;
-    // TODO: Complete part 1 first to unlock part 2
-    return null;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var instructions = std.ArrayList(Instruction).initCapacity(allocator, 50) catch unreachable;
+    defer instructions.deinit(allocator);
+
+    var lines = std.mem.tokenizeScalar(u8, input, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        const instr = try Instruction.parse(line);
+        try instructions.append(allocator, instr);
+    }
+
+    var state = State.init(instructions.items, 1);
+    state.run();
+
+    const result = state.registers[@intFromEnum(Register.b)];
+    return try std.fmt.allocPrint(allocator, "{}", .{result});
 }
