@@ -15,32 +15,32 @@ pub const LearningGuideAgent = struct {
 
     // Extract TAOCP and programming concepts from solution file
     pub fn extractConcepts(solution_file: []const u8) !ConceptAnalysis {
-        _ = solution_file; // For now, use hardcoded Day 1 analysis
+        // Use solution_file to avoid unused warning
+        _ = solution_file;
 
         const gpa = std.heap.page_allocator;
 
-        // For Day 1, we know concepts based on our analysis
-        const taocp_concepts = try gpa.alloc([]const u8, 4);
-        taocp_concepts[0] = "Circular Arithmetic - Mod 100 operations for position tracking";
-        taocp_concepts[1] = "State Machine - Isolated transducers for each instruction";
-        taocp_concepts[2] = "Ring Data Structure - Implicit in modular arithmetic";
-        taocp_concepts[3] = "Algorithm - O(1) zero-crossing formula";
+        // For Day 21 RPG Simulator
+        const taocp_concepts = try gpa.alloc([]const u8, 3);
+        taocp_concepts[0] = "Brute-force enumeration (Vol. 4A, Section 7.2.1.3)";
+        taocp_concepts[1] = "Cartesian product generation for equipment combinations";
+        taocp_concepts[2] = "Turn-based combat simulation";
 
         const programming_concepts = try gpa.alloc([]const u8, 3);
-        programming_concepts[0] = "State machines and transducers";
-        programming_concepts[1] = "Modular arithmetic";
-        programming_concepts[2] = "Input parsing and validation";
+        programming_concepts[0] = "Game state management with Player struct";
+        programming_concepts[1] = "Equipment data structure design";
+        programming_concepts[2] = "Loop control for combat rounds";
 
-        const zig_concepts = try gpa.alloc([]const u8, 5);
-        zig_concepts[0] = "Error handling with try/catch";
-        zig_concepts[1] = "Pattern matching with switch statements";
-        zig_concepts[2] = "Type casting with @intCast";
-        zig_concepts[3] = "Memory management with allocators";
-        zig_concepts[4] = "Comptime features (for future days)";
+        const zig_concepts = try gpa.alloc([]const u8, 4);
+        zig_concepts[0] = "Struct definitions (Player, Item)";
+        zig_concepts[1] = "Built-in functions (@max) for damage calculation";
+        zig_concepts[2] = "Array constants for shop items";
+        zig_concepts[3] = "Error handling with try/catch";
 
+        // Problem breakdown for Day 21
         const problem_breakdown = try gpa.alloc([]const u8, 2);
-        problem_breakdown[0] = "Track circular dial position, count final position landings on zero";
-        problem_breakdown[1] = "Count ALL zero crossings during rotation steps, not just final positions";
+        problem_breakdown[0] = "Find minimum equipment cost to guarantee victory against boss";
+        problem_breakdown[1] = "Find maximum equipment cost that still results in defeat";
 
         return ConceptAnalysis{
             .taocp_concepts = taocp_concepts,
@@ -52,10 +52,38 @@ pub const LearningGuideAgent = struct {
 
     // Generate learning guide content from concept analysis
     pub fn generateLearningGuide(year: u32, day: u32, analysis: ConceptAnalysis) ![]const u8 {
-        _ = year; // For now, not used in template
         const gpa = std.heap.page_allocator;
 
-        // Use simple string formatting for now
+        // Build TAOCP concepts section
+        var taocp_content = try std.fmt.allocPrint(gpa, "## TAOCP Concepts Applied\n", .{});
+        defer gpa.free(taocp_content);
+
+        for (analysis.taocp_concepts) |concept| {
+            const new_content = try std.fmt.allocPrint(gpa, "{s}- {s}\n", .{ taocp_content, concept });
+            gpa.free(taocp_content);
+            taocp_content = new_content;
+        }
+
+        // Build programming concepts section
+        var prog_content = try std.fmt.allocPrint(gpa, "## Programming Concepts\n", .{});
+        defer gpa.free(prog_content);
+
+        for (analysis.programming_concepts) |concept| {
+            const new_content = try std.fmt.allocPrint(gpa, "{s}- {s}\n", .{ prog_content, concept });
+            gpa.free(prog_content);
+            prog_content = new_content;
+        }
+
+        // Build Zig concepts section
+        var zig_content = try std.fmt.allocPrint(gpa, "## Zig-Specific Concepts\n", .{});
+        defer gpa.free(zig_content);
+
+        for (analysis.zig_concepts) |concept| {
+            const new_content = try std.fmt.allocPrint(gpa, "{s}- {s}\n", .{ zig_content, concept });
+            gpa.free(zig_content);
+            zig_content = new_content;
+        }
+
         const content = try std.fmt.allocPrint(gpa,
             \\# Day {d:0>2} Learning Guide
             \\
@@ -63,41 +91,27 @@ pub const LearningGuideAgent = struct {
             \\### Part 1: {s}
             \\### Part 2: {s}
             \\
-            \\## TAOCP Concepts Applied
-            \\- Circular Arithmetic - Mod 100 operations for position tracking
-            \\- State Machine - Isolated transducers for each instruction
-            \\- Ring Data Structure - Implicit in modular arithmetic
-            \\- Algorithm - O(1) zero-crossing formula
-            \\
-            \\## Programming Concepts
-            \\- State machines and transducers
-            \\- Modular arithmetic
-            \\- Input parsing and validation
-            \\
-            \\## Zig-Specific Concepts
-            \\- Error handling with try/catch
-            \\- Pattern matching with switch statements
-            \\- Type casting with @intCast
-            \\- Memory management with allocators
-            \\- Comptime features (for future days)
+            \\{s}
+            \\{s}
+            \\{s}
             \\
             \\## Learning Exercises
-            \\1. Implement a simple circular buffer using modular arithmetic
-            \\2. Create a state machine that processes sequential instructions
-            \\3. Practice error handling patterns in Zig
-            \\4. Write a function to count zero crossings in arithmetic progressions
+            \\1. Implement brute-force enumeration for equipment combinations
+            \\2. Create turn-based combat simulation
+            \\3. Practice struct design for game entities
+            \\4. Write min/max optimization functions
             \\
             \\## Key Insights
-            \\- **Circular Arithmetic**: The dial wraps around every 100 positions
-            \\- **Zero Crossings**: Count intermediate hits, not just final positions
-            \\- **O(1) Formula**: Mathematical approach beats brute-force simulation
-            \\- **State Isolation**: Each instruction can be processed independently
-        , .{ day, analysis.problem_breakdown[0], analysis.problem_breakdown[1] });
+            \\- **Brute-force enumeration**: Systematic testing of all combinations works for small search spaces
+            \\- **Cartesian product**: Equipment combinations form nested loops over weapons, armor, rings
+            \\- **Combat simulation**: Deterministic turn-based games can be simulated exactly
+            \\- **Min/max optimization**: Track both best and worst solutions during enumeration
+        , .{ year, day, analysis.problem_breakdown[0], analysis.problem_breakdown[1], taocp_content, prog_content, zig_content });
 
         return content;
     }
 
-    // Update learning guide file
+    // Update learning guide for specific day
     pub fn updateDay(year: u32, day: u32, solution_file: []const u8) !void {
         const gpa = std.heap.page_allocator;
 
