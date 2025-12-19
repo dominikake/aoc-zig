@@ -1,5 +1,5 @@
 const std = @import("std");
-const workflow_types = @import("../workflow-types.zig");
+const workflow_types = @import("workflow-types.zig");
 
 pub const TemplateEngine = struct {
     const Self = @This();
