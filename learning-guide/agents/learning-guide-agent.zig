@@ -20,27 +20,28 @@ pub const LearningGuideAgent = struct {
 
         const gpa = std.heap.page_allocator;
 
-        // For Day 21 RPG Simulator
+        // For Day 18 Like a GIF For Your Yard (Cellular Automaton)
         const taocp_concepts = try gpa.alloc([]const u8, 3);
-        taocp_concepts[0] = "Brute-force enumeration (Vol. 4A, Section 7.2.1.3)";
-        taocp_concepts[1] = "Cartesian product generation for equipment combinations";
-        taocp_concepts[2] = "Turn-based combat simulation";
+        taocp_concepts[0] = "Sequential allocation of arrays (Vol. 1, Section 2.2.2)";
+        taocp_concepts[1] = "Bounded loops and O(n×steps) simulation complexity";
+        taocp_concepts[2] = "Neighborhood enumeration on 2D lattice structures";
 
-        const programming_concepts = try gpa.alloc([]const u8, 3);
-        programming_concepts[0] = "Game state management with Player struct";
-        programming_concepts[1] = "Equipment data structure design";
-        programming_concepts[2] = "Loop control for combat rounds";
+        const programming_concepts = try gpa.alloc([]const u8, 4);
+        programming_concepts[0] = "Cellular automaton simulation with Game of Life rules";
+        programming_concepts[1] = "Double buffering pattern for simultaneous updates";
+        programming_concepts[2] = "2D array traversal and neighbor counting algorithms";
+        programming_concepts[3] = "Boundary condition handling for finite grids";
 
         const zig_concepts = try gpa.alloc([]const u8, 4);
-        zig_concepts[0] = "Struct definitions (Player, Item)";
-        zig_concepts[1] = "Built-in functions (@max) for damage calculation";
-        zig_concepts[2] = "Array constants for shop items";
-        zig_concepts[3] = "Error handling with try/catch";
+        zig_concepts[0] = "Compile-time constants (GRID_SIZE, STEPS) for generic code";
+        zig_concepts[1] = "Stack-allocated multi-dimensional arrays without allocators";
+        zig_concepts[2] = "Array swapping for efficient double buffering";
+        zig_concepts[3] = "Type casting between isize and usize for bounds checking";
 
-        // Problem breakdown for Day 21
+        // Problem breakdown for Day 18
         const problem_breakdown = try gpa.alloc([]const u8, 2);
-        problem_breakdown[0] = "Find minimum equipment cost to guarantee victory against boss";
-        problem_breakdown[1] = "Find maximum equipment cost that still results in defeat";
+        problem_breakdown[0] = "Simulate 100x100 grid of lights following Game of Life rules for 100 steps";
+        problem_breakdown[1] = "Part 2 adds permanently lit corners, requiring boundary condition modification";
 
         return ConceptAnalysis{
             .taocp_concepts = taocp_concepts,
