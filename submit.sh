@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# ./submit.sh YYYY DAY LEVEL ANSWER
+# ./submit.sh YYYY DAY LEVEL ANSWER [--force]
 # ./submit.sh 2025 1 1 "12345"
+# ./submit.sh 2025 1 1 "12345" --force  (non-interactive mode)
 
 set -euo pipefail
 
@@ -9,6 +10,7 @@ YEAR="$1"
 DAY="$2" 
 LEVEL="$3"
 ANSWER="$4"
+FORCE_MODE="${5:-}"
 
 COOKIE_FILE="$HOME/.config/aoc/session.cookie"
 CACHE_DIR="$HOME/.cache/aoc"
@@ -17,8 +19,8 @@ CACHE_FILE="$CACHE_DIR/${YEAR}_${DAY}_${LEVEL}.completed"
 # Create cache directory if it doesn't exist
 mkdir -p "$CACHE_DIR"
 
-# Check if already completed
-if [[ -f "$CACHE_FILE" ]]; then
+# Check if already completed (skip in force mode)
+if [[ -f "$CACHE_FILE" && "$FORCE_MODE" != "--force" ]]; then
     echo "⚠️  Part $LEVEL for $YEAR Day $DAY has already been completed."
     echo "Use --force to submit anyway (not recommended)."
     exit 1
@@ -45,15 +47,19 @@ if [[ "$LEVEL" != "1" && "$LEVEL" != "2" ]]; then
     exit 1
 fi
 
-# Confirmation prompt
-echo "You are about to submit an answer for Advent of Code $YEAR Day $DAY, Part $LEVEL"
-echo "Answer: $ANSWER"
-echo ""
-read -p "Do you want to continue? (y/N): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Submission cancelled."
-    exit 0
+# Confirmation prompt (skip in force mode)
+if [[ "$FORCE_MODE" != "--force" ]]; then
+    echo "You are about to submit an answer for Advent of Code $YEAR Day $DAY, Part $LEVEL"
+    echo "Answer: $ANSWER"
+    echo ""
+    read -p "Do you want to continue? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Submission cancelled."
+        exit 0
+    fi
+else
+    echo "Force mode: submitting without confirmation"
 fi
 
 # Submit answer

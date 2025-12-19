@@ -128,7 +128,7 @@ pub fn build(b: *std.Build) void {
     const unified_agent_exe = b.addExecutable(.{
         .name = "aoc-agent",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("agents/aoc-cli.zig"),
+            .root_source_file = b.path("agents/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{

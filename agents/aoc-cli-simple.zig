@@ -22,7 +22,7 @@ pub fn main() !void {
         return;
     }
 
-    // Parse simple workflow request
+    // Simple workflow execution for now
     const input = args[1];
     const request = try parseWorkflowRequest(input);
 

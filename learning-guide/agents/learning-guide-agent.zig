@@ -52,6 +52,7 @@ pub const LearningGuideAgent = struct {
 
     // Generate learning guide content from concept analysis
     pub fn generateLearningGuide(year: u32, day: u32, analysis: ConceptAnalysis) ![]const u8 {
+        _ = year; // Use year to avoid unused warning
         const gpa = std.heap.page_allocator;
 
         // Build TAOCP concepts section
@@ -106,7 +107,7 @@ pub const LearningGuideAgent = struct {
             \\- **Cartesian product**: Equipment combinations form nested loops over weapons, armor, rings
             \\- **Combat simulation**: Deterministic turn-based games can be simulated exactly
             \\- **Min/max optimization**: Track both best and worst solutions during enumeration
-        , .{ year, day, analysis.problem_breakdown[0], analysis.problem_breakdown[1], taocp_content, prog_content, zig_content });
+        , .{ day, analysis.problem_breakdown[0], analysis.problem_breakdown[1], taocp_content, prog_content, zig_content });
 
         return content;
     }

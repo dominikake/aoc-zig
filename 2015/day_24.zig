@@ -76,6 +76,7 @@ pub fn part2(input: []const u8) !?[]const u8 {
 
     // Simple brute force: try all combinations of min_packages to find optimal QE
     var best_qe = try findOptimalQESystematic(allocator, weights_slice, target_weight, min_packages);
+    defer best_qe.deinit();
 
     return try allocator.dupe(u8, try best_qe.toString(allocator, 10, .lower));
 }
@@ -176,18 +177,20 @@ fn generateCombinations(
         }
 
         if (combo_sum == target) {
-            // Calculate QE
-            var qe: usize = 1;
+            // Calculate QE using big ints to avoid overflow
+            var qe = try std.math.big.int.Managed.init(allocator);
+            defer qe.deinit();
+            try qe.set(1);
+
             for (combo[0..combo_len]) |w| {
-                qe *= w;
+                var w_big = try std.math.big.int.Managed.init(allocator);
+                defer w_big.deinit();
+                try w_big.set(w);
+                try qe.mul(&qe, &w_big);
             }
 
-            var qe_big = try std.math.big.int.Managed.init(allocator);
-            try qe_big.set(qe);
-            defer qe_big.deinit();
-
-            if (qe_big.order(best_qe.*) == .lt) {
-                best_qe.* = try qe_big.clone();
+            if (qe.order(best_qe.*) == .lt) {
+                best_qe.* = try qe.clone();
             }
         }
         return;

@@ -11,6 +11,7 @@
 - `./fetch.sh YYYY DAY --force` - Re-download input and update solution template
 - `./fetch.sh YYYY DAY --puzzle` - Only fetch puzzle description
 - `./submit.sh YYYY DAY LEVEL ANSWER` - Submit answer for specific part
+- `./submit.sh YYYY DAY LEVEL ANSWER --force` - Non-interactive submission (for automation)
 
 ## Code Style Guidelines
 
@@ -80,10 +81,20 @@ zig build learning-guide
 ```
 
 ### Integration with AoC Workflow
+The agent system follows a structured workflow for each part:
 1. **Solve Problem**: Implement solution using TAOCP concepts
-2. **Submit Answer**: Use `submit.sh` script
-3. **Generate Guide**: Run `./update-learning-guide.sh` to update learning guide
-4. **Review Learning**: Study concepts and exercises
+2. **Test Solution**: Verify solution works correctly with sample and custom tests
+3. **Submit Answer**: Use `submit.sh` script if tests pass
+4. **Generate Guide**: Run `./update-learning-guide.sh` after successful submission
+5. **Commit Changes**: Git commit all changes (solution, learning guide, etc.)
+6. **Review Learning**: Study concepts and exercises
+7. **Progress to Part 2**: Repeat workflow for Part 2 (if available)
+
+### Workflow Sequence Enforcement
+- **Single Part**: test → submit → learning guide → commit
+- **Full Workflow**: Part 1 (test → submit → learning guide → commit) → Part 2 (test → submit → learning guide → commit)
+- **Checkpoint System**: Saves state after each major step for recovery
+- **Error Handling**: Stops workflow on failures with detailed recovery suggestions
 
 ### Learning Guide Components
 Each generated guide includes:

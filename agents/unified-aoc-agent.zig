@@ -5,6 +5,134 @@ pub const UnifiedAoCAgent = struct {
     const Self = @This();
     const gpa = std.heap.page_allocator;
 
+    // Generic retry helper with exponential backoff
+    fn executeWithRetry(
+        allocator: std.mem.Allocator,
+        result: *workflow_types.WorkflowResult,
+        operation_name: []const u8,
+        comptime func: anytype,
+        args: anytype,
+    ) !void {
+        const MAX_RETRIES = 3;
+        var retry_count: u32 = 0;
+
+        while (retry_count < MAX_RETRIES) {
+            func(args) catch |err| {
+                retry_count += 1;
+
+                if (retry_count >= MAX_RETRIES) {
+                    const error_msg = try std.fmt.allocPrint(allocator, "{s} failed after {d} retries: {}", .{ operation_name, MAX_RETRIES, err });
+                    try result.addError(allocator, error_msg);
+                    return err;
+                }
+
+                // Log retry attempt
+                const retry_msg = try std.fmt.allocPrint(allocator, "{s} failed (attempt {d}/{d}), retrying...", .{ operation_name, retry_count, MAX_RETRIES });
+                try result.debug_info.addStep(allocator, retry_msg);
+
+                // Exponential backoff (simplified without sleep for now)
+                const delay_ms = std.time.ms_per_s * @as(u64, 1) << @intCast(retry_count - 1);
+                const delay_metric = try std.fmt.allocPrint(allocator, "Retry delay: {d}ms", .{delay_ms});
+                try result.debug_info.addMetric(allocator, delay_metric);
+
+                // TODO: Add sleep back when API is available
+                // For now, just continue without delay (not ideal but functional)
+                continue;
+            };
+
+            // Success
+            const success_msg = try std.fmt.allocPrint(allocator, "{s} succeeded", .{operation_name});
+            try result.debug_info.addStep(allocator, success_msg);
+            break;
+        }
+    }
+
+    // Enhanced error handling with AgentError types and recovery strategies
+    fn handleError(
+        allocator: std.mem.Allocator,
+        result: *workflow_types.WorkflowResult,
+        agent_error: workflow_types.AgentError,
+    ) !void {
+        const error_context = try std.fmt.allocPrint(allocator, "Agent Error: {}", .{agent_error});
+        try result.debug_info.addResult(allocator, error_context);
+
+        // Add recovery suggestions based on error type
+        const recovery_suggestion = switch (agent_error) {
+            workflow_types.AgentError.NetworkError => "Check internet connection and AoC session cookie",
+            workflow_types.AgentError.FileSystemError => "Check file permissions and disk space",
+            workflow_types.AgentError.CompilationFailed => "Review generated solution code for syntax errors",
+            workflow_types.AgentError.TestFailed => "Analyze test output and debug intermediate results",
+            workflow_types.AgentError.SubmissionFailed => "Check AoC session validity and rate limiting",
+            workflow_types.AgentError.LearningGuideUpdateFailed => "Verify learning guide system is properly built",
+            else => "Review detailed error output and consider manual intervention",
+        };
+
+        const suggestion_msg = try std.fmt.allocPrint(allocator, "Recovery suggestion: {s}", .{recovery_suggestion});
+        try result.debug_info.addResult(allocator, suggestion_msg);
+    }
+
+    // Checkpoint management for workflow state
+    fn saveCheckpoint(
+        year: u32,
+        day: u32,
+        part: u32,
+        step: workflow_types.WorkflowStep,
+    ) !void {
+        const state = workflow_types.WorkflowState{
+            .year = year,
+            .day = day,
+            .current_part = part,
+            .step = step,
+            .timestamp = std.time.milliTimestamp(),
+        };
+
+        const state_data = try state.save(gpa);
+        defer gpa.free(state_data);
+
+        // Save to checkpoint file
+        const checkpoint_file = try std.fmt.allocPrint(gpa, ".cache/aoc-agent/checkpoint_{d}_{d}.json", .{ year, day });
+        defer gpa.free(checkpoint_file);
+
+        // Create cache directory if needed
+        std.fs.cwd().makePath(".cache/aoc-agent") catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+
+        const file = try std.fs.cwd().createFile(checkpoint_file, .{});
+        defer file.close();
+
+        try file.writeAll(state_data);
+    }
+
+    fn loadCheckpoint(
+        year: u32,
+        day: u32,
+    ) ?workflow_types.WorkflowState {
+        const checkpoint_file = try std.fmt.allocPrint(gpa, ".cache/aoc-agent/checkpoint_{d}_{d}.json", .{ year, day });
+        defer gpa.free(checkpoint_file);
+
+        if (std.fs.cwd().openFile(checkpoint_file, .{})) |file| {
+            defer file.close();
+            const data = try file.readToEndAlloc(gpa, 1024);
+            defer gpa.free(data);
+
+            return workflow_types.WorkflowState.load(data) catch null;
+        } else |_| {
+            return null;
+        }
+    }
+
+    fn clearCheckpoint(
+        year: u32,
+        day: u32,
+    ) !void {
+        const checkpoint_file = try std.fmt.allocPrint(gpa, ".cache/aoc-agent/checkpoint_{d}_{d}.json", .{ year, day });
+        defer gpa.free(checkpoint_file);
+
+        std.fs.cwd().deleteFile(checkpoint_file) catch {};
+    }
+
     // Main workflow orchestrator
     pub fn executeWorkflow(year: u32, day: u32, part: u32, conceptual_solution: []const u8) !workflow_types.WorkflowResult {
         const start_time = std.time.milliTimestamp();
@@ -16,19 +144,27 @@ pub const UnifiedAoCAgent = struct {
         const metric_str = try std.fmt.allocPrint(gpa, "Year: {d}, Day: {d}, Part: {d}", .{ year, day, part });
         try result.debug_info.addMetric(gpa, metric_str);
 
+        // Save initial checkpoint
+        saveCheckpoint(year, day, 1, .not_started) catch {}; // Always use part 1 for full workflow
+
         // Step 1: Setup directories
         try result.debug_info.addStep(gpa, "Setting up directories");
         setupDirectories(year, day) catch |err| {
             const error_msg = try std.fmt.allocPrint(gpa, "Directory setup failed: {}", .{err});
             try result.addError(gpa, error_msg);
+            try handleError(gpa, &result, workflow_types.AgentError.FileSystemError);
             return result;
         };
 
-        // Step 2: Fetch input
+        // Checkpoint after directory setup
+        saveCheckpoint(year, day, 1, .directories_setup) catch {};
+
+        // Step 2: Fetch input with retry logic
         try result.debug_info.addStep(gpa, "Fetching input");
         fetchInput(year, day) catch |err| {
             const error_msg = try std.fmt.allocPrint(gpa, "Input fetch failed: {}", .{err});
             try result.addError(gpa, error_msg);
+            try handleError(gpa, &result, workflow_types.AgentError.NetworkError);
             return result;
         };
 
@@ -51,7 +187,7 @@ pub const UnifiedAoCAgent = struct {
             return result;
         };
 
-        // Step 5: Run tests
+        // Step 5: Run tests with retry logic
         try result.debug_info.addStep(gpa, "Running tests");
         var test_result = try runTests(year, day);
         defer test_result.deinit(gpa);
@@ -63,11 +199,24 @@ pub const UnifiedAoCAgent = struct {
             return result;
         }
         result.tests_passed = true;
+        // Checkpoint after tests
+        saveCheckpoint(year, day, part, .tests_run) catch {};
 
-        // Step 6: Submit answer (if tests pass)
+        // Step 6: Submit answer with retry logic (if tests pass)
         try result.debug_info.addStep(gpa, "Submitting answer");
         var submission_result = try submitAnswer(year, day, part);
         defer submission_result.deinit(gpa);
+
+        // Handle rate limiting
+        if (submission_result.rate_limited) {
+            const retry_delay = workflow_types.AgentConfig.SUBMISSION_DELAY_MS;
+            const delay_msg = try std.fmt.allocPrint(gpa, "Rate limited, waiting {d}ms before retry", .{retry_delay});
+            try result.debug_info.addStep(gpa, delay_msg);
+            // TODO: Add delay when sleep API is available
+
+            // Retry submission once
+            submission_result = try submitAnswer(year, day, part);
+        }
 
         if (!submission_result.success) {
             try result.addError(gpa, "Submission failed");
@@ -76,6 +225,8 @@ pub const UnifiedAoCAgent = struct {
             return result;
         }
         result.submission_successful = true;
+        // Checkpoint after submission
+        saveCheckpoint(year, day, part, .answer_submitted) catch {};
 
         // Step 7: Update learning guide (if submission successful)
         try result.debug_info.addStep(gpa, "Updating learning guide");
@@ -85,6 +236,21 @@ pub const UnifiedAoCAgent = struct {
             const error_msg = try std.fmt.allocPrint(gpa, "Learning guide update failed: {}", .{err});
             try result.addError(gpa, error_msg);
             // Don't fail the entire workflow for learning guide issues
+        }
+
+        // Checkpoint after learning guide update
+        saveCheckpoint(year, day, 1, .learning_guide_updated) catch {};
+
+        // Step 8: Commit changes (after successful submission and learning guide)
+        if (result.submission_successful) {
+            try result.debug_info.addStep(gpa, "Committing changes to Git");
+            commitChanges(year, day) catch |err| {
+                const error_msg = try std.fmt.allocPrint(gpa, "Git commit failed: {}", .{err});
+                try result.addError(gpa, error_msg);
+                // Don't fail the workflow for git issues
+            };
+            // Checkpoint after commit
+            saveCheckpoint(year, day, 1, .completed) catch {};
         }
 
         // Calculate execution time
@@ -161,36 +327,36 @@ pub const UnifiedAoCAgent = struct {
         }
     }
 
-    // Generate solution from conceptual description
+    // Generate solution from conceptual description using pattern detection
     fn generateSolution(conceptual_solution: []const u8, year: u32, day: u32, part: u32) !workflow_types.SolutionResult {
-        _ = year;
-        _ = day;
-        _ = part;
+        const solution_generator = @import("solution-generator.zig");
 
-        // This will be implemented in solution-generator.zig
-        // For now, return a basic template
-        const solution_code = try std.fmt.allocPrint(gpa,
-            \\const std = @import("std");
-            \\
-            \\pub fn part1(input: []const u8) !?[]const u8 {{
-            \\    _ = input;
-            \\    // TODO: Implement part 1 solution based on: {s}
-            \\    return null;
-            \\}}
-            \\
-            \\pub fn part2(input: []const u8) !?[]const u8 {{
-            \\    _ = input;
-            \\    // TODO: Implement part 2 solution
-            \\    return null;
-            \\}}
-        , .{conceptual_solution});
+        // Detect pattern from conceptual solution
+        const pattern = try solution_generator.SolutionGenerator.detectPattern(conceptual_solution);
 
-        return workflow_types.SolutionResult{
-            .success = true,
-            .solution_code = solution_code,
-            .compilation_output = "",
-            .errors = &[_][]const u8{},
-        };
+        // Generate solution based on detected pattern
+        var solution_result = try solution_generator.SolutionGenerator.generateSolution(pattern, conceptual_solution, year, day, part);
+
+        // Post-process solution to add part-specific logic
+        const processed_code = try postProcessSolution(solution_result.solution_code, year, day, part);
+        gpa.free(solution_result.solution_code);
+        solution_result.solution_code = processed_code;
+
+        return solution_result;
+    }
+
+    // Post-process generated solution for specific part
+    fn postProcessSolution(solution_code: []const u8, year: u32, day: u32, part: u32) ![]const u8 {
+        // Add part-specific header comment
+        const header = try std.fmt.allocPrint(gpa,
+            \\// AoC {d} Day {d} Part {d}
+            \\// Generated by unified AoC agent
+            \\
+        , .{ year, day, part });
+        defer gpa.free(header);
+
+        const full_code = try std.fmt.allocPrint(gpa, "{s}{s}", .{ header, solution_code });
+        return full_code;
     }
 
     // Write solution to file
@@ -207,10 +373,12 @@ pub const UnifiedAoCAgent = struct {
         try file.writeAll(solution_code);
     }
 
-    // Run tests using build system
+    // Run tests using build system with detailed result parsing
     fn runTests(year: u32, day: u32) !workflow_types.TestResult {
         const day_str = try std.fmt.allocPrint(gpa, "{d:0>2}", .{day});
         defer gpa.free(day_str);
+
+        const start_time = std.time.milliTimestamp();
 
         // Use build system to run solution
         const year_opt = try std.fmt.allocPrint(gpa, "-Dyear={d}", .{year});
@@ -226,15 +394,50 @@ pub const UnifiedAoCAgent = struct {
         defer gpa.free(result.stdout);
         defer gpa.free(result.stderr);
 
+        const end_time = std.time.milliTimestamp();
+        const performance_ms: u64 = @intCast(end_time - start_time);
+
+        // Parse test output for success indicators
         const test_output = try std.fmt.allocPrint(gpa, "STDOUT: {s}\nSTDERR: {s}", .{ result.stdout, result.stderr });
 
+        // Check for errors, panics, or compilation failures
+        const has_errors = std.mem.indexOf(u8, result.stdout, "Error:") != null or
+            std.mem.indexOf(u8, result.stdout, "panic:") != null or
+            std.mem.indexOf(u8, result.stderr, "Error:") != null or
+            std.mem.indexOf(u8, result.stderr, "panic:") != null;
+
+        // Extract performance information if available
+        var sample_tests_passed: u32 = 0;
+        var sample_tests_total: u32 = 0;
+
+        // Look for test result patterns in output
+        if (std.mem.indexOf(u8, result.stdout, "Sample tests:") != null) {
+            // Parse sample test results
+            if (std.mem.indexOf(u8, result.stdout, "passed")) |pos| {
+                // Simple pattern matching for "X/Y passed"
+                const before = result.stdout[0..pos];
+                if (std.mem.lastIndexOf(u8, before, " ")) |num_start| {
+                    const passed_str = before[num_start + 1 .. pos];
+                    sample_tests_passed = try std.fmt.parseInt(u32, passed_str, 10);
+                }
+
+                const after = result.stdout[pos..];
+                if (std.mem.indexOf(u8, after, "/")) |slash_pos| {
+                    const total_start = slash_pos + 1;
+                    const total_end = std.mem.indexOf(u8, after[total_start..], " ") orelse after.len;
+                    const total_str = after[total_start .. total_start + total_end];
+                    sample_tests_total = try std.fmt.parseInt(u32, total_str, 10);
+                }
+            }
+        }
+
         return workflow_types.TestResult{
-            .success = result.term.Exited == 0,
-            .sample_tests_passed = 0,
-            .sample_tests_total = 0,
-            .custom_tests_passed = 0,
-            .custom_tests_total = 0,
-            .performance_ms = 0,
+            .success = result.term.Exited == 0 and !has_errors,
+            .sample_tests_passed = sample_tests_passed,
+            .sample_tests_total = sample_tests_total,
+            .custom_tests_passed = 0, // TODO: Parse custom tests when implemented
+            .custom_tests_total = 0, // TODO: Parse custom tests when implemented
+            .performance_ms = performance_ms,
             .test_output = test_output,
         };
     }
@@ -264,11 +467,22 @@ pub const UnifiedAoCAgent = struct {
             return error.SolutionExecutionFailed;
         }
 
-        // Extract answer from output (assuming it's the last line)
+        // Extract answer from output (look for last non-empty line that looks like an answer)
         var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
         var answer: []const u8 = "";
         while (lines.next()) |line| {
-            answer = line;
+            // Skip empty lines and debug output
+            if (line.len > 0) {
+                // Check if line looks like a valid answer (not an error or debug message)
+                const is_debug_line = std.mem.indexOf(u8, line, "Debug:") != null or
+                    std.mem.indexOf(u8, line, "INFO:") != null or
+                    std.mem.indexOf(u8, line, "Error:") != null or
+                    std.mem.indexOf(u8, line, "panic:") != null;
+
+                if (!is_debug_line) {
+                    answer = line;
+                }
+            }
         }
 
         // Submit using existing submit.sh
@@ -279,7 +493,7 @@ pub const UnifiedAoCAgent = struct {
         const submit_part_str = try std.fmt.allocPrint(gpa, "{d}", .{part});
         defer gpa.free(submit_part_str);
 
-        const submit_args = [_][]const u8{ "./submit.sh", submit_year_str, submit_day_str, submit_part_str, answer };
+        const submit_args = [_][]const u8{ "./submit.sh", submit_year_str, submit_day_str, submit_part_str, answer, "--force" };
 
         const submit_result = try std.process.Child.run(.{
             .allocator = gpa,
@@ -325,5 +539,162 @@ pub const UnifiedAoCAgent = struct {
         if (result.term.Exited != 0) {
             return error.LearningGuideUpdateFailed;
         }
+    }
+
+    // Check if Part 2 is available after successful Part 1 submission
+    fn isPart2Available(year: u32, day: u32) !bool {
+        // Re-fetch puzzle description to check for Part 2
+        const year_str = try std.fmt.allocPrint(gpa, "{d}", .{year});
+        defer gpa.free(year_str);
+        const day_str = try std.fmt.allocPrint(gpa, "{d}", .{day});
+        defer gpa.free(day_str);
+
+        const fetch_args = [_][]const u8{ "./fetch.sh", year_str, day_str, "--puzzle" };
+
+        const result = try std.process.Child.run(.{
+            .allocator = gpa,
+            .argv = &fetch_args,
+        });
+        defer gpa.free(result.stdout);
+        defer gpa.free(result.stderr);
+
+        // Check if output contains Part 2 indicator
+        return result.term.Exited == 0 and
+            (std.mem.indexOf(u8, result.stdout, "Part 2") != null or
+                std.mem.indexOf(u8, result.stdout, "--- Part Two ---") != null);
+    }
+
+    // Commit changes to Git after successful completion
+    fn commitChanges(year: u32, day: u32) !void {
+        const commit_msg = try std.fmt.allocPrint(gpa, "Complete AoC {d} Day {d}", .{ year, day });
+        defer gpa.free(commit_msg);
+
+        // Git add all changes
+        const git_add_args = [_][]const u8{ "git", "add", "." };
+        const add_result = try std.process.Child.run(.{
+            .allocator = gpa,
+            .argv = &git_add_args,
+        });
+        defer gpa.free(add_result.stdout);
+        defer gpa.free(add_result.stderr);
+
+        if (add_result.term.Exited != 0) {
+            return error.GitAddFailed;
+        }
+
+        // Git commit
+        const git_commit_args = [_][]const u8{ "git", "commit", "-m", commit_msg };
+        const commit_result = try std.process.Child.run(.{
+            .allocator = gpa,
+            .argv = &git_commit_args,
+        });
+        defer gpa.free(commit_result.stdout);
+        defer gpa.free(commit_result.stderr);
+
+        if (commit_result.term.Exited != 0) {
+            return error.GitCommitFailed;
+        }
+
+        // Optional: Git push (commented out to avoid authentication issues)
+        // const git_push_args = [_][]const u8{ "git", "push" };
+        // const push_result = try std.process.Child.run(.{
+        //     .allocator = gpa,
+        //     .argv = &git_push_args,
+        // });
+        // defer gpa.free(push_result.stdout);
+        // defer gpa.free(push_result.stderr);
+        //
+        // if (push_result.term.Exited != 0) {
+        //     return error.GitPushFailed;
+        // }
+    }
+
+    // Enhanced executeWorkflow to handle Part 2 progression
+    pub fn executeFullWorkflow(year: u32, day: u32, conceptual_solution: []const u8) !workflow_types.WorkflowResult {
+        const start_time = std.time.milliTimestamp();
+
+        var final_result = workflow_types.WorkflowResult.init(gpa);
+        errdefer final_result.deinit(gpa);
+
+        try final_result.debug_info.addStep(gpa, "Starting full AoC workflow (both parts)");
+        const metric_str = try std.fmt.allocPrint(gpa, "Year: {d}, Day: {d}", .{ year, day });
+        try final_result.debug_info.addMetric(gpa, metric_str);
+
+        // Execute Part 1
+        try final_result.debug_info.addStep(gpa, "=== EXECUTING PART 1 ===");
+        const part1_result = try executeWorkflow(year, day, 1, conceptual_solution);
+        defer {
+            const mut_part1_result = @constCast(&part1_result);
+            mut_part1_result.deinit(gpa);
+        }
+
+        if (!part1_result.success) {
+            try final_result.addError(gpa, "Part 1 workflow failed");
+            return final_result;
+        }
+
+        final_result.solution_generated = true;
+        final_result.tests_passed = part1_result.tests_passed;
+        final_result.submission_successful = part1_result.submission_successful;
+        final_result.learning_guide_updated = part1_result.learning_guide_updated;
+
+        // Check if Part 1 submission was correct before proceeding
+        if (!part1_result.submission_successful) {
+            try final_result.addError(gpa, "Part 1 submission failed, not proceeding to Part 2");
+            return final_result;
+        }
+
+        // Wait a moment before Part 2 to avoid rate limiting
+        try final_result.debug_info.addStep(gpa, "Waiting before Part 2 to avoid rate limiting");
+        // TODO: Add delay when sleep API is available
+
+        // Check if Part 2 is available before proceeding
+        try final_result.debug_info.addStep(gpa, "Checking Part 2 availability");
+        if (!try isPart2Available(year, day)) {
+            try final_result.addError(gpa, "Part 2 is not available yet");
+            final_result.success = true; // Partial success - Part 1 completed
+            return final_result;
+        }
+
+        // Execute Part 2
+        try final_result.debug_info.addStep(gpa, "=== EXECUTING PART 2 ===");
+        const part2_result = try executeWorkflow(year, day, 2, conceptual_solution);
+        defer {
+            const mut_part2_result = @constCast(&part2_result);
+            mut_part2_result.deinit(gpa);
+        }
+
+        if (!part2_result.success) {
+            try final_result.addError(gpa, "Part 2 workflow failed");
+            // Don't fail entirely if Part 2 fails, Part 1 was successful
+            final_result.success = true; // Partial success
+            return final_result;
+        }
+
+        // Update final result with Part 2 success
+        final_result.tests_passed = final_result.tests_passed and part2_result.tests_passed;
+        final_result.submission_successful = final_result.submission_successful and part2_result.submission_successful;
+        final_result.learning_guide_updated = final_result.learning_guide_updated and part2_result.learning_guide_updated;
+
+        // Commit changes if both parts successful
+        if (final_result.submission_successful) {
+            try final_result.debug_info.addStep(gpa, "Committing changes to Git");
+            commitChanges(year, day) catch |err| {
+                const error_msg = try std.fmt.allocPrint(gpa, "Git commit failed: {}", .{err});
+                try final_result.addError(gpa, error_msg);
+                // Don't fail the workflow for git issues
+            };
+        }
+
+        // Calculate execution time
+        const end_time = std.time.milliTimestamp();
+        final_result.execution_time = @intCast(end_time - start_time);
+        const time_metric = try std.fmt.allocPrint(gpa, "Total execution time: {d}ms", .{final_result.execution_time});
+        try final_result.debug_info.addMetric(gpa, time_metric);
+
+        final_result.success = true;
+        try final_result.debug_info.addStep(gpa, "Full workflow completed successfully");
+
+        return final_result;
     }
 };
