@@ -150,97 +150,113 @@ fn castSpell(state: *GameState, spell: Spell) void {
     }
 }
 
-// TAOCP Vol. 4: Game state simulation - simulate complete battle from starting state
+// TAOCP Vol. 6: Hashing - create compact state representation for visited tracking
+fn stateToString(state: GameState, buf: []u8) []const u8 {
+    return std.fmt.bufPrint(buf, "{}|{}|{}|{}|{}|{}", .{
+        state.player_hp,
+        state.player_mana,
+        state.boss_hp,
+        state.shield_timer,
+        state.poison_timer,
+        state.recharge_timer,
+    }) catch "";
+}
+
+// TAOCP Vol. 4: DFS with branch and bound - recursive search for optimal solution
+fn dfsBattle(state: GameState, best_cost: *?i32, hard_mode: bool, depth: u32) void {
+    // Add depth limit to prevent infinite recursion (hard mode requires faster wins)
+    if (depth > 20) return;
+
+    // Prune if we already have a better solution
+    if (best_cost.*) |cost| {
+        if (state.total_mana_spent >= cost) return;
+    }
+
+    // Check if boss is dead - we won!
+    if (state.boss_hp <= 0) {
+        best_cost.* = state.total_mana_spent;
+        std.debug.print("New best: {}\n", .{state.total_mana_spent});
+        return;
+    }
+
+    // Check if player is dead - this path fails
+    if (state.player_hp <= 0) return;
+
+    // Start of player turn
+    var player_state = state;
+
+    // Apply effects at start of player turn (BEFORE hard mode damage!)
+    applyEffects(&player_state);
+    if (player_state.boss_hp <= 0) {
+        best_cost.* = player_state.total_mana_spent;
+        std.debug.print("New best (effects killed): {}\n", .{player_state.total_mana_spent});
+        return;
+    }
+
+    // Hard mode: player loses 1 HP at start of turn (AFTER effects)
+    if (hard_mode) {
+        player_state.player_hp -= 1;
+        if (player_state.player_hp <= 0) return;
+    }
+
+    // Try spells in order of efficiency for hard mode
+    // Priority: Magic Missile (cheap damage), Poison (efficient DoT), Drain (damage+heal), Recharge (mana), Shield (defense)
+    const spell_order = [_]Spell{
+        .{ .spell_type = .magic_missile, .mana_cost = 53 },
+        .{ .spell_type = .poison, .mana_cost = 173 },
+        .{ .spell_type = .drain, .mana_cost = 73 },
+        .{ .spell_type = .recharge, .mana_cost = 229 },
+        .{ .spell_type = .shield, .mana_cost = 113 },
+    };
+
+    for (spell_order) |spell| {
+        if (!canCastSpell(player_state, spell)) continue;
+
+        var spell_state = player_state;
+
+        // Cast spell
+        castSpell(&spell_state, spell);
+        if (spell_state.boss_hp <= 0) {
+            best_cost.* = spell_state.total_mana_spent;
+            std.debug.print("New best (spell killed): {}\n", .{spell_state.total_mana_spent});
+            return;
+        }
+
+        // Boss turn starts
+        var boss_state = spell_state;
+
+        // Apply effects at start of boss turn
+        applyEffects(&boss_state);
+        if (boss_state.boss_hp <= 0) {
+            best_cost.* = boss_state.total_mana_spent;
+            std.debug.print("New best (boss effects killed): {}\n", .{boss_state.total_mana_spent});
+            return;
+        }
+
+        // Boss attacks
+        const damage = boss_state.calculateBossDamage(boss_state.boss_damage);
+        boss_state.player_hp -= damage;
+
+        // Recursively continue
+        dfsBattle(boss_state, best_cost, hard_mode, depth + 1);
+    }
+}
+
+// TAOCP Vol. 4: Game state simulation - wrapper for DFS
 fn simulateBattle(allocator: std.mem.Allocator, initial_state: GameState, hard_mode: bool) !?i32 {
     _ = allocator; // Mark as used
     var best_cost: ?i32 = null;
-    var states_processed: u32 = 0; // Debug counter
 
-    // TAOCP Vol. 5: Sorting - priority queue for Dijkstra's algorithm
-    var pq = std.PriorityQueue(GameState, void, compareGameState).init(std.heap.page_allocator, {});
-    defer pq.deinit();
+    std.debug.print("Starting DFS search (hard mode: {})\n", .{hard_mode});
 
-    // TAOCP Vol. 6: Hashing - visited states to avoid cycles
-    var visited = std.AutoHashMap(GameState, void).init(std.heap.page_allocator);
-    defer visited.deinit();
+    dfsBattle(initial_state, &best_cost, hard_mode, 0);
 
-    try pq.add(initial_state);
-
-    while (pq.removeOrNull()) |state| {
-        states_processed += 1;
-
-        // Debug: print progress every 1000 states
-        if (states_processed % 1000 == 0) {
-            const best_str = if (best_cost) |cost| try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{cost}) else "none";
-            std.debug.print("Processed {} states, current best: {s}\n", .{ states_processed, best_str });
-            if (best_cost != null) std.heap.page_allocator.free(best_str);
-        }
-
-        // Prune states that exceed best known cost
-        if (best_cost) |cost| {
-            if (state.total_mana_spent >= cost) continue;
-        }
-
-        // Check win/loss conditions
-        if (state.boss_hp <= 0) {
-            best_cost = state.total_mana_spent;
-            continue;
-        }
-
-        if (state.player_hp <= 0) continue;
-
-        // Avoid revisiting states
-        if (visited.contains(state)) continue;
-        try visited.put(state, {});
-
-        // Apply hard mode damage once per player turn
-        var state_after_hard_mode = state;
-        if (hard_mode) {
-            state_after_hard_mode.player_hp -= 1;
-            if (state_after_hard_mode.player_hp <= 0) continue;
-        }
-
-        // Apply effects at start of player turn
-        var state_after_effects = state_after_hard_mode;
-        applyEffects(&state_after_effects);
-        if (state_after_effects.boss_hp <= 0) {
-            best_cost = state_after_effects.total_mana_spent;
-            continue;
-        }
-
-        // Try all possible spells from current state
-        for (Spell.all_spells) |spell| {
-            if (!canCastSpell(state_after_effects, spell)) continue;
-
-            var spell_state = state_after_effects;
-
-            // Cast the spell
-            castSpell(&spell_state, spell);
-            if (spell_state.boss_hp <= 0) {
-                best_cost = spell_state.total_mana_spent;
-                continue;
-            }
-
-            // Boss turn - apply effects first
-            applyEffects(&spell_state);
-            if (spell_state.boss_hp <= 0) {
-                best_cost = spell_state.total_mana_spent;
-                continue;
-            }
-
-            // Boss attacks
-            const damage = spell_state.calculateBossDamage(spell_state.boss_damage);
-            spell_state.player_hp -= damage;
-
-            if (spell_state.player_hp > 0) {
-                try pq.add(spell_state);
-            }
-        }
+    if (best_cost) |cost| {
+        std.debug.print("WINNING SEQUENCE FOUND: {}\n", .{cost});
+    } else {
+        std.debug.print("NO WINNING SEQUENCE FOUND\n", .{});
     }
 
-    const final_str = if (best_cost) |cost| try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{cost}) else "none";
-    std.debug.print("Total states processed: {}, best cost: {s}\n", .{ states_processed, final_str });
-    if (best_cost != null) std.heap.page_allocator.free(final_str);
     return best_cost;
 }
 
