@@ -1,5 +1,6 @@
 const std = @import("std");
 const workflow_types = @import("workflow-types.zig");
+const workflow_guard = @import("workflow-guard.zig");
 
 pub const UnifiedAoCAgent = struct {
     const Self = @This();
@@ -140,6 +141,10 @@ pub const UnifiedAoCAgent = struct {
         var result = workflow_types.WorkflowResult.init(gpa);
         errdefer result.deinit(gpa);
 
+        // Initialize workflow guard
+        var step_tracker = workflow_guard.WorkflowGuard.StepTracker.init(gpa);
+        defer step_tracker.deinit();
+
         try result.debug_info.addStep(gpa, "Starting unified AoC workflow");
         const metric_str = try std.fmt.allocPrint(gpa, "Year: {d}, Day: {d}, Part: {d}", .{ year, day, part });
         try result.debug_info.addMetric(gpa, metric_str);
@@ -148,6 +153,11 @@ pub const UnifiedAoCAgent = struct {
         saveCheckpoint(year, day, 1, .not_started) catch {}; // Always use part 1 for full workflow
 
         // Step 1: Setup directories
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .directories_setup) catch {
+            const error_msg = "Workflow guard: directory setup step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Setting up directories");
         setupDirectories(year, day) catch |err| {
             const error_msg = try std.fmt.allocPrint(gpa, "Directory setup failed: {}", .{err});
@@ -160,6 +170,11 @@ pub const UnifiedAoCAgent = struct {
         saveCheckpoint(year, day, 1, .directories_setup) catch {};
 
         // Step 2: Fetch input with retry logic
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .input_fetched) catch {
+            const error_msg = "Workflow guard: input fetching step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Fetching input");
         fetchInput(year, day) catch |err| {
             const error_msg = try std.fmt.allocPrint(gpa, "Input fetch failed: {}", .{err});
@@ -169,6 +184,11 @@ pub const UnifiedAoCAgent = struct {
         };
 
         // Step 3: Generate solution
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .solution_generated) catch {
+            const error_msg = "Workflow guard: solution generation step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Generating solution from concept");
         var solution_result = try generateSolution(conceptual_solution, year, day, part);
         defer solution_result.deinit(gpa);
@@ -188,6 +208,11 @@ pub const UnifiedAoCAgent = struct {
         };
 
         // Step 5: Run tests with retry logic
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .tests_run) catch {
+            const error_msg = "Workflow guard: test execution step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Running tests");
         var test_result = try runTests(year, day);
         defer test_result.deinit(gpa);
@@ -203,6 +228,11 @@ pub const UnifiedAoCAgent = struct {
         saveCheckpoint(year, day, part, .tests_run) catch {};
 
         // Step 6: Submit answer with retry logic (if tests pass)
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .answer_submitted) catch {
+            const error_msg = "Workflow guard: answer submission step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Submitting answer");
         var submission_result = try submitAnswer(year, day, part);
         defer submission_result.deinit(gpa);
@@ -224,11 +254,29 @@ pub const UnifiedAoCAgent = struct {
             try result.debug_info.addResult(gpa, response_copy);
             return result;
         }
+
+        // Check if answer was correct
+        if (!submission_result.correct and !submission_result.cached) {
+            // Answer was incorrect - provide context and exit gracefully
+            const context_msg = try std.fmt.allocPrint(gpa,
+                \\Submission incorrect. Implementation yielded answer but AoC rejected it.
+                \\Check test inputs, double-check logic, or revisit implementation.
+                \\Response: {s}
+            , .{submission_result.response});
+            try result.debug_info.addResult(gpa, context_msg);
+            try result.addError(gpa, "Answer rejected by AoC - implementation needs review");
+            return result;
+        }
         result.submission_successful = true;
         // Checkpoint after submission
         saveCheckpoint(year, day, part, .answer_submitted) catch {};
 
         // Step 7: Update learning guide (if submission successful)
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .learning_guide_updated) catch {
+            const error_msg = "Workflow guard: learning guide update step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
         try result.debug_info.addStep(gpa, "Updating learning guide");
         if (updateLearningGuide(year, day)) {
             result.learning_guide_updated = true;
@@ -241,23 +289,25 @@ pub const UnifiedAoCAgent = struct {
         // Checkpoint after learning guide update
         saveCheckpoint(year, day, 1, .learning_guide_updated) catch {};
 
-        // Step 8: Commit changes (after successful submission and learning guide)
-        if (result.submission_successful) {
-            try result.debug_info.addStep(gpa, "Committing changes to Git");
-            commitChanges(year, day) catch |err| {
-                const error_msg = try std.fmt.allocPrint(gpa, "Git commit failed: {}", .{err});
-                try result.addError(gpa, error_msg);
-                // Don't fail the workflow for git issues
-            };
-            // Checkpoint after commit
-            saveCheckpoint(year, day, 1, .completed) catch {};
-        }
+        // Commit logic moved to executeFullWorkflow to avoid duplication
 
         // Calculate execution time
         const end_time = std.time.milliTimestamp();
         result.execution_time = @intCast(end_time - start_time);
         const time_metric = try std.fmt.allocPrint(gpa, "Total execution time: {d}ms", .{result.execution_time});
         try result.debug_info.addMetric(gpa, time_metric);
+
+        // Record workflow completion
+        workflow_guard.WorkflowGuard.guardStep(&step_tracker, .completed) catch {
+            const error_msg = "Workflow guard: completion step cannot be executed - prerequisites not met";
+            try result.addError(gpa, error_msg);
+            return result;
+        };
+
+        // Validate workflow completion
+        if (!try workflow_guard.WorkflowGuard.validateCompletion(&step_tracker)) {
+            try result.addError(gpa, "Workflow validation failed - some steps may have been skipped");
+        }
 
         result.success = true;
         try result.debug_info.addStep(gpa, "Workflow completed successfully");
@@ -442,8 +492,31 @@ pub const UnifiedAoCAgent = struct {
         };
     }
 
+    // Validate AoC session cookie exists
+    fn validateSession() !void {
+        const home_dir = std.process.getEnvVarOwned(gpa, "HOME") catch return error.NoHomeDir;
+        defer gpa.free(home_dir);
+        const cookie_path = try std.fmt.allocPrint(gpa, "{s}/.config/aoc/session.cookie", .{home_dir});
+        defer gpa.free(cookie_path);
+
+        std.fs.cwd().access(cookie_path, .{}) catch {
+            return error.SessionCookieNotFound;
+        };
+    }
+
     // Submit answer using existing submit.sh logic
     fn submitAnswer(year: u32, day: u32, part: u32) !workflow_types.SubmissionResult {
+        // Validate session before attempting submission
+        validateSession() catch {
+            return workflow_types.SubmissionResult{
+                .success = false,
+                .response = "Session validation failed - check ~/.config/aoc/session.cookie",
+                .cached = false,
+                .rate_limited = false,
+                .correct = false,
+            };
+        };
+
         // First, get the answer by running the solution
         const day_str = try std.fmt.allocPrint(gpa, "{d:0>2}", .{day});
         defer gpa.free(day_str);
@@ -566,7 +639,7 @@ pub const UnifiedAoCAgent = struct {
 
     // Commit changes to Git after successful completion
     fn commitChanges(year: u32, day: u32) !void {
-        const commit_msg = try std.fmt.allocPrint(gpa, "Complete AoC {d} Day {d}", .{ year, day });
+        const commit_msg = try std.fmt.allocPrint(gpa, "feat: solve aoc {d} day{d:0>2}", .{ year, day });
         defer gpa.free(commit_msg);
 
         // Git add all changes
@@ -684,6 +757,8 @@ pub const UnifiedAoCAgent = struct {
                 try final_result.addError(gpa, error_msg);
                 // Don't fail the workflow for git issues
             };
+            // Checkpoint after commit
+            saveCheckpoint(year, day, 1, .completed) catch {};
         }
 
         // Calculate execution time
